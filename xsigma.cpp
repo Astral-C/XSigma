@@ -15,26 +15,54 @@ void Decode(std::vector<uint8_t>& target, std::vector<uint8_t>& patch, std::vect
     
 
     std::memcpy(&magic, &(*patchReadPtr), sizeof(uint32_t));
-    indicator = *patchReadPtr++;
+    indicator = *patchReadPtr; patchReadPtr++;
 
     if(indicator & SigmaFlags::Compressed){
-        compressionType = *patchReadPtr++;
+        compressionType = *patchReadPtr; patchReadPtr; patchReadPtr++;
     }
 
     if(indicator & SigmaFlags::CodeTable){
-        nearCacheSize = *patchReadPtr++;
-        sameCacheSize = *patchReadPtr++;    
+        nearCacheSize = *patchReadPtr; patchReadPtr++;
+        sameCacheSize = *patchReadPtr; patchReadPtr++;    
     
         patchReadPtr += nearCacheSize + sameCacheSize; // skip internal code table for now
     }
 
-    uint8_t curWindowIndicator = *patchReadPtr++;
-    uint32_t segmentSize, segmentPosition, deltaSize;
+    bool hasRemainingWindows = true;
 
-    std::memcpy(&segmentSize, &(*patchReadPtr), sizeof(uint32_t)); patchReadPtr += sizeof(uint32_t);
-    std::memcpy(&segmentPosition, &(*patchReadPtr), sizeof(uint32_t)); patchReadPtr += sizeof(uint32_t);
+    while(hasRemainingWindows){
+        uint8_t curWindowIndicator = *patchReadPtr; patchReadPtr++;
+        uint32_t segmentSize, segmentPosition;
+
+        std::memcpy(&segmentSize, &(*patchReadPtr), sizeof(uint32_t)); patchReadPtr += sizeof(uint32_t);
+        std::memcpy(&segmentPosition, &(*patchReadPtr), sizeof(uint32_t)); patchReadPtr += sizeof(uint32_t);
+
+
+        bool isSourceWindow = curWindowIndicator & 0x01; // pull from source file
+        bool isTargetWindow = curWindowIndicator & 0x02; // pull from target data
+
+        if(isSourceWindow && isTargetWindow){
+            // err only one of these is valid!!!
+            return;
+        }
+
+        // Handle delta encoding data
+        uint32_t deltaEncodingSize, targetWindowSize;
+
+        std::memcpy(&deltaEncodingSize, &(*patchReadPtr), sizeof(uint32_t)); patchReadPtr += sizeof(uint32_t);
+        std::memcpy(&targetWindowSize, &(*patchReadPtr), sizeof(uint32_t)); patchReadPtr += sizeof(uint32_t);
+
+        uint8_t deltaIndicator = *patchReadPtr; patchReadPtr++;
+
+        uint32_t addRunDataSize, instructionsSectionSize, copyAddrsSize;
+
+        std::memcpy(&addRunDataSize, &(*patchReadPtr), sizeof(uint32_t)); patchReadPtr += sizeof(uint32_t);
+        std::memcpy(&instructionsSectionSize, &(*patchReadPtr), sizeof(uint32_t)); patchReadPtr += sizeof(uint32_t);
+        std::memcpy(&copyAddrsSize, &(*patchReadPtr), sizeof(uint32_t)); patchReadPtr += sizeof(uint32_t);
+    
 
     
+    }
 
 }
 

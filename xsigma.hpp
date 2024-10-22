@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <vector>
 #include <cstring>
+
 // implements VCDiff RFC 3284 https://www.rfc-editor.org/rfc/rfc3284.txt
 // should be compatible with xdelta3
 
