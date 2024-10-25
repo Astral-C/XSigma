@@ -1,1 +1,4 @@
 .vscode
+build
+*.xdelta
+*.nds
