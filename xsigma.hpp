@@ -3,12 +3,40 @@
 #include <cstddef>
 #include <vector>
 #include <cstring>
-#include <map>
+#include <array>
 
 // implements VCDiff RFC 3284 https://www.rfc-editor.org/rfc/rfc3284.txt
 // should be compatible with xdelta3
-
 namespace XSigma {
+
+enum class CodeType {
+    NOP,
+    ADD,
+    RUN,
+    COPY
+};
+
+struct Code {
+    CodeType type;
+    uint8_t size;
+    uint8_t mode;
+};
+
+typedef std::array<Code[2], 256> CodeTable;
+
+extern CodeTable DefaultCodeTable;
+
+struct Cache {
+    uint32_t nextSlot { 0 }; // rings around near 
+    std::vector<uint32_t> near {};
+    std::vector<uint32_t> same {};
+
+    Cache();
+    Cache(uint32_t s_near, uint32_t s_same);
+    
+    void Update(uint32_t address);
+    uint32_t DecodeAddress(std::vector<uint8_t>::iterator buff, uint32_t here, uint32_t mode);
+};
 
 enum SigmaCompressionType {
     None,
@@ -17,7 +45,7 @@ enum SigmaCompressionType {
     FGK  = 0x10
 };
 
-enum SigmaFlags {
+enum class SigmaFlags {
     Compressed = 0x01, // secondary compression
     CodeTable = 0x02, // secondary code table
     ApplicationData = 0x04 // has extra application data

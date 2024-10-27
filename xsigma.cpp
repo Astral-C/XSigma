@@ -7,34 +7,6 @@
 
 namespace XSigma {
 
-/*
-    Default Code Table
-
-        TYPE      SIZE     MODE    TYPE     SIZE     MODE     INDEX
-       ---------------------------------------------------------------
-    1.  RUN         0        0     NOOP       0        0        0
-    2.  ADD    0, [1,17]     0     NOOP       0        0      [1,18]
-    3.  COPY   0, [4,18]     0     NOOP       0        0     [19,34]
-    4.  COPY   0, [4,18]     1     NOOP       0        0     [35,50]
-    5.  COPY   0, [4,18]     2     NOOP       0        0     [51,66]
-    6.  COPY   0, [4,18]     3     NOOP       0        0     [67,82]
-    7.  COPY   0, [4,18]     4     NOOP       0        0     [83,98]
-    8.  COPY   0, [4,18]     5     NOOP       0        0     [99,114]
-    9.  COPY   0, [4,18]     6     NOOP       0        0    [115,130]
-   10.  COPY   0, [4,18]     7     NOOP       0        0    [131,146]
-   11.  COPY   0, [4,18]     8     NOOP       0        0    [147,162]
-   12.  ADD       [1,4]      0     COPY     [4,6]      0    [163,174]
-   13.  ADD       [1,4]      0     COPY     [4,6]      1    [175,186]
-   14.  ADD       [1,4]      0     COPY     [4,6]      2    [187,198]
-   15.  ADD       [1,4]      0     COPY     [4,6]      3    [199,210]
-   16.  ADD       [1,4]      0     COPY     [4,6]      4    [211,222]
-   17.  ADD       [1,4]      0     COPY     [4,6]      5    [223,234]
-   18.  ADD       [1,4]      0     COPY       4        6    [235,238]
-   19.  ADD       [1,4]      0     COPY       4        7    [239,242]
-   20.  ADD       [1,4]      0     COPY       4        8    [243,246]
-   21.  COPY        4      [0,8]   ADD        1        0    [247,255]
-*/
-
 std::size_t maxIntegerSize { sizeof(uint32_t) };
 
 uint32_t decodeInteger(std::vector<uint8_t>::iterator& src){
@@ -49,52 +21,45 @@ uint32_t decodeInteger(std::vector<uint8_t>::iterator& src){
     return result;
 }
 
-struct Cache {
-    uint32_t nextSlot { 0 }; // rings around near 
-    std::vector<uint32_t> near {};
-    std::vector<uint32_t> same {};
+Cache::Cache(){
+    near.resize(4, 0);
+    same.resize(3*256, 0);
+}
 
-    Cache(){
-        near.resize(4, 0);
-        same.resize(3*256, 0);
+Cache::Cache(uint32_t s_near, uint32_t s_same){
+    near.resize(s_near, 0);
+    same.resize(s_same*256, 0);
+}
+
+void Cache::Update(uint32_t address){
+    if(near.size() > 0){
+        near[nextSlot] = address;
+        nextSlot = (nextSlot + 1) % near.size();
     }
 
-    Cache(uint32_t s_near, uint32_t s_same){
-        near.resize(s_near, 0);
-        same.resize(s_same*256, 0);
+    if(same.size() > 0){
+        same[address % same.size()] = address;
+    }
+}
+
+uint32_t Cache::DecodeAddress(std::vector<uint8_t>::iterator buff, uint32_t here, uint32_t mode){
+    uint32_t addr, m;
+    if(mode == 0) { // VCD_SELF
+        addr = decodeInteger(buff);
+    } else if(mode == 1) { // VCD_HERE
+        addr = here - decodeInteger(buff); // what
+    } else if((m = mode - 2) >= 0 && m < near.size()){
+        addr = near[m] + decodeInteger(buff);
+    } else {
+        m = mode - (2 + near.size());
+        addr = same[m * 256 + *buff];
+        buff++;
     }
 
-    void Update(uint32_t address){
-        if(near.size() > 0){
-            near[nextSlot] = address;
-            nextSlot = (nextSlot + 1) % near.size();
-        }
-
-        if(same.size() > 0){
-            same[address % same.size()] = address;
-        }
-    }
-
-    uint32_t DecodeAddress(std::vector<uint8_t>::iterator buff, uint32_t here, uint32_t mode){
-        uint32_t addr, m;
-        if(mode == 0) { // VCD_SELF
-            addr = decodeInteger(buff);
-        } else if(mode == 1) { // VCD_HERE
-            addr = here - decodeInteger(buff); // what
-        } else if((m = mode - 2) >= 0 && m < near.size()){
-            addr = near[m] + decodeInteger(buff);
-        } else {
-            m = mode - (2 + near.size());
-            addr = same[m * 256 + *buff];
-            buff++;
-        }
-
-        Update(addr);
-
-        return addr;
-    }
-
-};
+    Update(addr);
+    
+    return addr;
+}
 
 
 void LZMADecode(std::vector<uint8_t>& data){
@@ -155,7 +120,7 @@ void Decode(std::vector<uint8_t>& target, std::vector<uint8_t>& patch, std::vect
     
     indicator = *patchReadPtr; patchReadPtr++;
 
-    if(indicator & SigmaFlags::Compressed){
+    if(indicator & static_cast<uint8_t>(SigmaFlags::Compressed)){
         compressionType = static_cast<SigmaCompressionType>(*patchReadPtr); patchReadPtr++;
         
         #ifdef __debug__
@@ -163,9 +128,10 @@ void Decode(std::vector<uint8_t>& target, std::vector<uint8_t>& patch, std::vect
         #endif
     }
 
-    Cache ka();
+    Cache ka;
+    CodeTable table;
 
-    if(indicator & SigmaFlags::CodeTable){
+    if(indicator & static_cast<uint8_t>(SigmaFlags::CodeTable)){
         nearCacheSize = *patchReadPtr; patchReadPtr++;
         sameCacheSize = *patchReadPtr; patchReadPtr++;    
     
@@ -174,6 +140,8 @@ void Decode(std::vector<uint8_t>& target, std::vector<uint8_t>& patch, std::vect
         #ifdef __debug__
         std::cout << std::format("[XSigma] VCDiff has Internal Code Table") << std::endl;
         #endif
+    } else {
+        table = DefaultCodeTable;
     }
 
     if(indicator & SigmaFlags::ApplicationData){
@@ -268,7 +236,49 @@ void Decode(std::vector<uint8_t>& target, std::vector<uint8_t>& patch, std::vect
                 return;
         }
 
+        // Make sure our output data has some reserved memory, no idea if it will be enough but it should prevent allocations and, when allocations are needed, allow more mem to be reserved
 
+        // Run the instructions
+        std::vector<uint8_t>::iterator addRunPtr = runData.begin();
+        std::vector<uint8_t>::iterator addrDataPtr = copyAddresses.begin();
+        for(std::vector<uint8_t>::iterator instruction = instructionsSection.begin(); instruction < instructionsSection.end();){
+            uint8_t cmd = *instruction; instruction++; // read value
+        
+            for(std::size_t i = 0; i < 2; i++){
+                uint32_t sz = table[cmd][i].size;
+                if(table[cmd][i].type != CodeType::NOP && table[cmd][i].size == 0){
+                    sz = decodeInteger(instruction);
+                }
+
+                // Run the commands
+
+                switch (table[cmd][i].type){
+                case CodeType::ADD:
+                    for(std::size_t chr = 0; chr < sz; chr++){
+                        out.push_back(*addRunPtr);
+                        addRunPtr++;
+                    }
+                    break;
+
+                case CodeType::RUN:
+                    for(std::size_t chr = 0; chr < sz; chr++){
+                        out.push_back(*addRunPtr);
+                    }
+                    addRunPtr++;
+                    break;
+
+                case CodeType::COPY:
+                    uint32_t addr = decodeInteger(addrDataPtr);
+                    ka.DecodeAddress(addr,  ,table[cmd][i].mode);
+                    break;
+
+                case CodeType::NOP:
+                    break;
+                }
+            }
+        }
+
+        out.shrink_to_fit(); // make sure we dont have a bunch of memory sitting around when we hand this back to the user
 
     }
 
@@ -294,17 +304,17 @@ void Encode(std::vector<uint8_t>& source, std::vector<uint8_t>& target, std::vec
     writePtr += sizeof(magic);
 
     uint8_t indicator = 0;
-    if(flags & SigmaFlags::Compressed){
+    if(static_cast<uint8_t>(flags) & static_cast<uint8_t>(SigmaFlags::Compressed)){
         indicator |= 1;
     }
 
-    if(flags & SigmaFlags::CodeTable){
+    if(static_cast<uint8_t>(flags) & static_cast<uint8_t>(SigmaFlags::CodeTable)){
         indicator |= 2;
     }
     
     *writePtr++ = indicator;
     
-    if(flags & SigmaFlags::CodeTable){
+    if(static_cast<uint8_t>(flags) & static_cast<uint8_t>(SigmaFlags::CodeTable)){
         uint32_t codeTableSize = 0;
         uint8_t codeTableNearCacheSize = 0;
         uint8_t codeTableSameCacheSize = 0;

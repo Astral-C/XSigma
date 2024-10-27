@@ -5,7 +5,7 @@ option(MAKE_TEST "Build test application" OFF)
 
 find_package(LibLZMA)
 
-add_library(XSigma STATIC xsigma.hpp xsigma.cpp)
+add_library(XSigma STATIC xsigma.hpp xcodetable.cpp xsigma.cpp)
 target_link_libraries(XSigma PRIVATE LibLZMA::LibLZMA)
 set_property(TARGET XSigma PROPERTY CXX_STANDARD 26)
 
