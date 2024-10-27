@@ -144,7 +144,7 @@ void Decode(std::vector<uint8_t>& target, std::vector<uint8_t>& patch, std::vect
         table = DefaultCodeTable;
     }
 
-    if(indicator & SigmaFlags::ApplicationData){
+    if(indicator & (uint8_t)SigmaFlags::ApplicationData){
         #ifdef __debug__
         std::cout << std::format("[XSigma] Application Data flag is active") << std::endl;
         #endif
@@ -159,9 +159,7 @@ void Decode(std::vector<uint8_t>& target, std::vector<uint8_t>& patch, std::vect
         std::memcpy(data.data(), &(*patchReadPtr), applDataSize); patchReadPtr += applDataSize;
     }
 
-    bool hasRemainingWindows = true;
-
-    while(hasRemainingWindows){
+    while(true){
         uint8_t curWindowIndicator = *patchReadPtr; patchReadPtr++;
         uint32_t segmentSize = decodeInteger(patchReadPtr);
         uint32_t segmentPosition = decodeInteger(patchReadPtr);
@@ -188,6 +186,9 @@ void Decode(std::vector<uint8_t>& target, std::vector<uint8_t>& patch, std::vect
         uint32_t instructionsSectionSize = decodeInteger(patchReadPtr);
         uint32_t copyAddrsSize = decodeInteger(patchReadPtr);
     
+        std::vector<uint8_t>::iterator windowBeginPtr = patchReadPtr;
+        std::vector<uint8_t>::iterator windowReadPtr = patchReadPtr; 
+
         std::vector<uint8_t> runData, instructionsSection, copyAddresses;
         runData.resize(addRunDataSize);
         instructionsSection.resize(instructionsSectionSize);
@@ -254,6 +255,7 @@ void Decode(std::vector<uint8_t>& target, std::vector<uint8_t>& patch, std::vect
 
                 switch (table[cmd][i].type){
                 case CodeType::ADD:
+                    std::cout << "Preforming Add at " << out.size() << std::endl;
                     for(std::size_t chr = 0; chr < sz; chr++){
                         out.push_back(*addRunPtr);
                         addRunPtr++;
@@ -261,16 +263,24 @@ void Decode(std::vector<uint8_t>& target, std::vector<uint8_t>& patch, std::vect
                     break;
 
                 case CodeType::RUN:
+                    std::cout << "Preforming Run at " << out.size() << std::endl;
                     for(std::size_t chr = 0; chr < sz; chr++){
                         out.push_back(*addRunPtr);
                     }
                     addRunPtr++;
                     break;
 
-                case CodeType::COPY:
-                    uint32_t addr = decodeInteger(addrDataPtr);
-                    ka.DecodeAddress(addr,  ,table[cmd][i].mode);
+                case CodeType::COPY: {
+                    std::cout << "Preforming Copy at " << (windowReadPtr - windowBeginPtr) << std::endl;
+                    uint32_t addr = ka.DecodeAddress(addrDataPtr,  (windowReadPtr - windowBeginPtr), table[cmd][i].mode);
+                    std::vector<uint8_t>::iterator readPtr = windowBeginPtr + addr;
+                    for(std::size_t chr = 0; chr < sz; chr++){
+                        out.push_back(*readPtr);
+                        readPtr++;
+                    }
+                    windowReadPtr += sz;
                     break;
+                }
 
                 case CodeType::NOP:
                     break;
@@ -279,6 +289,9 @@ void Decode(std::vector<uint8_t>& target, std::vector<uint8_t>& patch, std::vect
         }
 
         out.shrink_to_fit(); // make sure we dont have a bunch of memory sitting around when we hand this back to the user
+        patchReadPtr = windowReadPtr;
+
+        if(patchReadPtr == patch.end()) break;
 
     }
 
